@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -136,11 +137,26 @@ func (p *Pool) Close() error {
 
 // Get gets an SQLite connection from the pool.
 func (p *Pool) Get(ctx context.Context) (*sqlite.Conn, error) {
-	select {
-	case <-p.ready:
-	case <-ctx.Done():
-		return nil, xerrors.Errorf("get sqlite conn: %w", ctx.Err())
+	tick := time.NewTicker(5 * time.Second)
+	for ready := false; !ready; {
+		// Inform Pool.open to keep trying.
+		select {
+		case p.retry <- struct{}{}:
+		default:
+		}
+
+		select {
+		case <-tick.C:
+			// Another try.
+		case <-p.ready:
+			ready = true
+		case <-ctx.Done():
+			tick.Stop()
+			return nil, xerrors.Errorf("get sqlite conn: %w", ctx.Err())
+		}
 	}
+	tick.Stop()
+
 	if p.err != nil {
 		return nil, xerrors.Errorf("get sqlite conn: %w", p.err)
 	}
