@@ -449,6 +449,80 @@ func TestPool(t *testing.T) {
 			t.Error("pool.Close:", err)
 		}
 	})
+
+	t.Run("CustomFunctionInSchema", func(t *testing.T) {
+		schema := Schema{
+			AppID: 0xedbeef,
+			Migrations: []string{
+				`create table foo ( id integer primary key not null );
+				insert into foo (id) values (theAnswer());`,
+			},
+		}
+		pool := NewPool(filepath.Join(dir, "custom-schema-function.db"), schema, Options{
+			Flags: sqlite.SQLITE_OPEN_READWRITE | sqlite.SQLITE_OPEN_CREATE | sqlite.SQLITE_OPEN_NOMUTEX,
+			PrepareConn: func(conn *sqlite.Conn) error {
+				return conn.CreateFunction("theAnswer", true, 0, func(ctx sqlite.Context, _ ...sqlite.Value) {
+					ctx.ResultInt(42)
+				}, nil, nil)
+			},
+		})
+		defer func() {
+			if err := pool.Close(); err != nil {
+				t.Error("pool.Close:", err)
+			}
+		}()
+		conn, err := pool.Get(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pool.Put(conn)
+		var got int
+		err = sqlitex.ExecTransient(conn, "select id from foo limit 1;", func(stmt *sqlite.Stmt) error {
+			got = stmt.ColumnInt(0)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != 42 {
+			t.Errorf("got %d; want 42", got)
+		}
+	})
+
+	t.Run("CustomFunctionInGet", func(t *testing.T) {
+		schema := Schema{
+			AppID: 0xedbeef,
+		}
+		pool := NewPool(filepath.Join(dir, "custom-get-function.db"), schema, Options{
+			Flags: sqlite.SQLITE_OPEN_READWRITE | sqlite.SQLITE_OPEN_CREATE | sqlite.SQLITE_OPEN_NOMUTEX,
+			PrepareConn: func(conn *sqlite.Conn) error {
+				return conn.CreateFunction("theAnswer", true, 0, func(ctx sqlite.Context, _ ...sqlite.Value) {
+					ctx.ResultInt(42)
+				}, nil, nil)
+			},
+		})
+		defer func() {
+			if err := pool.Close(); err != nil {
+				t.Error("pool.Close:", err)
+			}
+		}()
+		conn, err := pool.Get(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pool.Put(conn)
+		var got int
+		err = sqlitex.ExecTransient(conn, "select theAnswer();", func(stmt *sqlite.Stmt) error {
+			got = stmt.ColumnInt(0)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != 42 {
+			t.Errorf("got %d; want 42", got)
+		}
+	})
 }
 
 // withTestConn makes an independent connection to the given database.

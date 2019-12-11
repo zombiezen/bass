@@ -60,6 +60,10 @@ type Options struct {
 	// OnError is called when the pool encounters errors while applying the
 	// migration. This is typically used for logging errors.
 	OnError ReportFunc
+
+	// PrepareConn is called for each connection in the pool to set up functions
+	// and other connection-specific state.
+	PrepareConn ConnPrepareFunc
 }
 
 func (opts Options) realPoolSize() int {
@@ -71,8 +75,12 @@ func (opts Options) realPoolSize() int {
 
 // Pool is a pool of SQLite connections.
 type Pool struct {
-	retry  chan<- struct{}
+	retry  chan struct{}
+	opts   Options
 	cancel context.CancelFunc
+
+	initedMu sync.RWMutex // protects inited
+	inited   map[*sqlite.Conn]struct{}
 
 	ready <-chan struct{} // protects the following fields
 	pool  *sqlitex.Pool
@@ -88,14 +96,18 @@ func NewPool(uri string, schema Schema, opts Options) *Pool {
 	retry := make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Pool{
-		ready:  ready,
 		retry:  retry,
+		opts:   opts,
 		cancel: cancel,
+		ready:  ready,
+	}
+	if opts.PrepareConn != nil {
+		p.inited = make(map[*sqlite.Conn]struct{})
 	}
 	go func() {
 		defer close(ready)
 		defer cancel()
-		p.pool, p.err = openPool(ctx, uri, schema, opts, retry)
+		p.pool, p.err = p.open(ctx, uri, schema)
 		if p.err != nil {
 			opts.OnError.call(p.err)
 		}
@@ -139,7 +151,32 @@ func (p *Pool) Get(ctx context.Context) (*sqlite.Conn, error) {
 		}
 		return nil, xerrors.New("get sqlite conn: pool closed")
 	}
+	if err := p.prepare(conn); err != nil {
+		p.pool.Put(conn)
+		return nil, xerrors.Errorf("get sqlite conn: %w", err)
+	}
 	return conn, nil
+}
+
+func (p *Pool) prepare(conn *sqlite.Conn) error {
+	if p.opts.PrepareConn == nil {
+		return nil
+	}
+	p.initedMu.RLock()
+	_, inited := p.inited[conn]
+	p.initedMu.RUnlock()
+	if inited {
+		return nil
+	}
+	if err := p.opts.PrepareConn(conn); err != nil {
+		return xerrors.Errorf("prepare connection: %w", err)
+	}
+	// This will not race, since other goroutines will not be able to acquire the
+	// connection from the pool.
+	p.initedMu.Lock()
+	p.inited[conn] = struct{}{}
+	p.initedMu.Unlock()
+	return nil
 }
 
 // Put puts an SQLite connection back into the pool.
@@ -177,19 +214,19 @@ func (p *Pool) CheckHealth() error {
 	}
 }
 
-func openPool(ctx context.Context, uri string, schema Schema, opts Options, retry <-chan struct{}) (*sqlitex.Pool, error) {
+func (p *Pool) open(ctx context.Context, uri string, schema Schema) (*sqlitex.Pool, error) {
 	for first := true; ; first = false {
 		if !first {
 			select {
-			case <-retry:
+			case <-p.retry:
 			case <-ctx.Done():
 				return nil, xerrors.New("closed before successful migration")
 			}
 		}
 
-		pool, err := sqlitex.Open(uri, opts.Flags, opts.realPoolSize())
+		pool, err := sqlitex.Open(uri, p.opts.Flags, p.opts.realPoolSize())
 		if err != nil {
-			opts.OnError.call(err)
+			p.opts.OnError.call(err)
 			continue
 		}
 		conn := pool.Get(ctx)
@@ -198,15 +235,20 @@ func openPool(ctx context.Context, uri string, schema Schema, opts Options, retr
 			pool.Close()
 			return nil, xerrors.New("closed before successful migration")
 		}
-		err = migrateDB(ctx, conn, schema, opts.OnStartMigrate)
+		if err := p.prepare(conn); err != nil {
+			pool.Put(conn)
+			p.opts.OnError.call(err)
+			continue
+		}
+		err = migrateDB(ctx, conn, schema, p.opts.OnStartMigrate)
 		pool.Put(conn)
 		if err != nil {
 			if closeErr := pool.Close(); closeErr != nil {
-				opts.OnError.call(xerrors.Errorf("close after failed migration: %w", closeErr))
+				p.opts.OnError.call(xerrors.Errorf("close after failed migration: %w", closeErr))
 			}
 			return nil, err
 		}
-		opts.OnReady.call()
+		p.opts.OnReady.call()
 		return pool, nil
 	}
 }
@@ -271,7 +313,7 @@ func (f SignalFunc) call() {
 }
 
 // A ReportFunc is called for transient errors the pool encounters while
-// running the migrations.
+// running the migrations. It must be safe to call from multiple goroutines.
 type ReportFunc func(error)
 
 func (f ReportFunc) call(err error) {
@@ -280,3 +322,11 @@ func (f ReportFunc) call(err error) {
 	}
 	f(err)
 }
+
+// A ConnPrepareFunc is called for each connection in a pool to set up
+// connection-specific state. It must be safe to call from multiple goroutines.
+//
+// If the ConnPrepareFunc returns an error, then it will be called the next time
+// the connection is about to be used. Once ConnPrepareFunc returns nil for a
+// given connection, it will not be called on that connection again.
+type ConnPrepareFunc func(conn *sqlite.Conn) error
