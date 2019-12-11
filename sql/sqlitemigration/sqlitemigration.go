@@ -237,8 +237,10 @@ func (p *Pool) open(ctx context.Context, uri string, schema Schema) (*sqlitex.Po
 		}
 		if err := p.prepare(conn); err != nil {
 			pool.Put(conn)
-			p.opts.OnError.call(err)
-			continue
+			if closeErr := pool.Close(); closeErr != nil {
+				p.opts.OnError.call(xerrors.Errorf("close after failed connection preparation: %w", closeErr))
+			}
+			return nil, err
 		}
 		err = migrateDB(ctx, conn, schema, p.opts.OnStartMigrate)
 		pool.Put(conn)
