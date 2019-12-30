@@ -271,6 +271,11 @@ func (p *Pool) open(ctx context.Context, uri string, schema Schema) (*sqlitex.Po
 	}
 }
 
+// Migrate performs any unapplied migrations in the schema on the database.
+func Migrate(ctx context.Context, conn *sqlite.Conn, schema Schema) error {
+	return migrateDB(ctx, conn, schema, nil)
+}
+
 func migrateDB(ctx context.Context, conn *sqlite.Conn, schema Schema, onStart SignalFunc) (err error) {
 	defer conn.SetInterrupt(conn.SetInterrupt(ctx.Done()))
 	defer sqlitex.Save(conn)(&err)
