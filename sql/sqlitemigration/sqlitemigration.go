@@ -41,6 +41,10 @@ type Schema struct {
 	// Migrations is a list of SQL scripts to run. Each script is wrapped in a
 	// transaction which is rolled back on any error.
 	Migrations []string
+
+	// RepeatableMigration is a SQL script to run if any migrations ran. The
+	// script is wrapped in a transaction which is rolled back on any error.
+	RepeatableMigration string
 }
 
 // Options specifies optional behaviors for the pool.
@@ -314,12 +318,21 @@ func migrateDB(ctx context.Context, conn *sqlite.Conn, schema Schema, onStart Si
 		return xerrors.Errorf("migrate database: %w", err)
 	}
 	onStart.call()
-	for schemaVersion < len(schema.Migrations) {
-		err := sqlitex.ExecScript(conn, fmt.Sprintf("%s;\nPRAGMA user_version = %d;\n", schema.Migrations[schemaVersion], schemaVersion+1))
+	migrated := schemaVersion < len(schema.Migrations)
+	for ; schemaVersion < len(schema.Migrations); schemaVersion++ {
+		migration := schema.Migrations[schemaVersion]
+		if migration == "" {
+			continue
+		}
+		err := sqlitex.ExecScript(conn, fmt.Sprintf("%s;\nPRAGMA user_version = %d;\n", migration, schemaVersion+1))
 		if err != nil {
 			return xerrors.Errorf("migrate database: apply migrations[%d]: %w", schemaVersion, err)
 		}
-		schemaVersion++
+	}
+	if migrated && schema.RepeatableMigration != "" {
+		if err := sqlitex.ExecScript(conn, schema.RepeatableMigration); err != nil {
+			return xerrors.Errorf("migrate database: apply repeatable migration: %w", err)
+		}
 	}
 	return nil
 }

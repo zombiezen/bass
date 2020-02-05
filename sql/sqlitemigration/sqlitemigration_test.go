@@ -23,6 +23,7 @@ import (
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
+	"github.com/google/go-cmp/cmp"
 	"golang.org/x/xerrors"
 )
 
@@ -389,6 +390,115 @@ func TestPool(t *testing.T) {
 			t.Error(err)
 		} else if got != 42 {
 			t.Errorf("select id = %d; want 42", got)
+		}
+		pool.Put(conn)
+		if err := pool.Close(); err != nil {
+			t.Error("pool.Close:", err)
+		}
+	})
+
+	t.Run("Repeatable/IncrementalMigration", func(t *testing.T) {
+		schema1 := Schema{
+			AppID: 0xedbeef,
+			Migrations: []string{
+				`create table foo ( id integer primary key not null );`,
+			},
+		}
+		schema2 := Schema{
+			AppID: 0xedbeef,
+			Migrations: []string{
+				`create table foo ( id integer primary key not null );`,
+				`insert into foo values (42);`,
+			},
+			RepeatableMigration: `insert into foo values (333);`,
+		}
+
+		// Run 1
+		pool := NewPool(filepath.Join(dir, "repeatable-incremental.db"), schema1, Options{
+			Flags: sqlite.SQLITE_OPEN_READWRITE | sqlite.SQLITE_OPEN_CREATE | sqlite.SQLITE_OPEN_NOMUTEX,
+		})
+		conn, err := pool.Get(ctx)
+		if err != nil {
+			pool.Close()
+			t.Fatal(err)
+		}
+		pool.Put(conn)
+		if err := pool.Close(); err != nil {
+			t.Error("pool.Close:", err)
+		}
+
+		// Run 2
+		pool = NewPool(filepath.Join(dir, "repeatable-incremental.db"), schema2, Options{
+			Flags: sqlite.SQLITE_OPEN_READWRITE | sqlite.SQLITE_OPEN_CREATE | sqlite.SQLITE_OPEN_NOMUTEX,
+		})
+		conn, err = pool.Get(ctx)
+		if err != nil {
+			pool.Close()
+			t.Fatal(err)
+		}
+		var got []int
+		err = sqlitex.ExecTransient(conn, "select id from foo order by id;", func(stmt *sqlite.Stmt) error {
+			got = append(got, stmt.ColumnInt(0))
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
+		} else if !cmp.Equal(got, []int{42, 333}) {
+			t.Errorf("select id = %v; want [42 333]", got)
+		}
+		pool.Put(conn)
+		if err := pool.Close(); err != nil {
+			t.Error("pool.Close:", err)
+		}
+	})
+
+	t.Run("Repeatable/SameVersion", func(t *testing.T) {
+		schema1 := Schema{
+			AppID: 0xedbeef,
+			Migrations: []string{
+				`create table foo ( id integer primary key not null );`,
+			},
+		}
+		schema2 := Schema{
+			AppID: 0xedbeef,
+			Migrations: []string{
+				`create table foo ( id integer primary key not null );`,
+			},
+			RepeatableMigration: `insert into foo values (333);`,
+		}
+
+		// Run 1
+		pool := NewPool(filepath.Join(dir, "repeatable-sameversion.db"), schema1, Options{
+			Flags: sqlite.SQLITE_OPEN_READWRITE | sqlite.SQLITE_OPEN_CREATE | sqlite.SQLITE_OPEN_NOMUTEX,
+		})
+		conn, err := pool.Get(ctx)
+		if err != nil {
+			pool.Close()
+			t.Fatal(err)
+		}
+		pool.Put(conn)
+		if err := pool.Close(); err != nil {
+			t.Error("pool.Close:", err)
+		}
+
+		// Run 2
+		pool = NewPool(filepath.Join(dir, "repeatable-sameversion.db"), schema2, Options{
+			Flags: sqlite.SQLITE_OPEN_READWRITE | sqlite.SQLITE_OPEN_CREATE | sqlite.SQLITE_OPEN_NOMUTEX,
+		})
+		conn, err = pool.Get(ctx)
+		if err != nil {
+			pool.Close()
+			t.Fatal(err)
+		}
+		var got []int
+		err = sqlitex.ExecTransient(conn, "select id from foo order by id;", func(stmt *sqlite.Stmt) error {
+			got = append(got, stmt.ColumnInt(0))
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
+		} else if len(got) > 0 {
+			t.Errorf("select id = %v; want []", got)
 		}
 		pool.Put(conn)
 		if err := pool.Close(); err != nil {
