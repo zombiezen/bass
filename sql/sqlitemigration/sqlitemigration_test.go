@@ -16,6 +16,7 @@ package sqlitemigration
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -24,7 +25,6 @@ import (
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
 	"github.com/google/go-cmp/cmp"
-	"golang.org/x/xerrors"
 )
 
 func TestPool(t *testing.T) {
@@ -92,7 +92,7 @@ func TestPool(t *testing.T) {
 		err := withTestConn(dir, "another.db", func(conn *sqlite.Conn) error {
 			err := sqlitex.ExecTransient(conn, `create table foo ( id integer primary key not null );`, nil)
 			if err != nil {
-				return xerrors.Errorf("create table: %v", err)
+				return fmt.Errorf("create table: %v", err)
 			}
 			return nil
 		})

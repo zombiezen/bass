@@ -20,13 +20,13 @@ package sqlitemigration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
-	"golang.org/x/xerrors"
 )
 
 // Schema defines the migrations for the application.
@@ -126,7 +126,7 @@ func (p *Pool) Close() error {
 	p.closedMu.Lock()
 	if p.closed {
 		p.closedMu.Unlock()
-		return xerrors.New("close sqlite pool: already closed")
+		return errors.New("close sqlite pool: already closed")
 	}
 	p.closed = true
 	p.closedMu.Unlock()
@@ -156,24 +156,24 @@ func (p *Pool) Get(ctx context.Context) (*sqlite.Conn, error) {
 			ready = true
 		case <-ctx.Done():
 			tick.Stop()
-			return nil, xerrors.Errorf("get sqlite conn: %w", ctx.Err())
+			return nil, fmt.Errorf("get sqlite conn: %w", ctx.Err())
 		}
 	}
 	tick.Stop()
 
 	if p.err != nil {
-		return nil, xerrors.Errorf("get sqlite conn: %w", p.err)
+		return nil, fmt.Errorf("get sqlite conn: %w", p.err)
 	}
 	conn := p.pool.Get(ctx)
 	if conn == nil {
 		if err := ctx.Err(); err != nil {
-			return nil, xerrors.Errorf("get sqlite conn: %w", err)
+			return nil, fmt.Errorf("get sqlite conn: %w", err)
 		}
-		return nil, xerrors.New("get sqlite conn: pool closed")
+		return nil, errors.New("get sqlite conn: pool closed")
 	}
 	if err := p.prepare(conn); err != nil {
 		p.pool.Put(conn)
-		return nil, xerrors.Errorf("get sqlite conn: %w", err)
+		return nil, fmt.Errorf("get sqlite conn: %w", err)
 	}
 	return conn, nil
 }
@@ -189,7 +189,7 @@ func (p *Pool) prepare(conn *sqlite.Conn) error {
 		return nil
 	}
 	if err := p.opts.PrepareConn(conn); err != nil {
-		return xerrors.Errorf("prepare connection: %w", err)
+		return fmt.Errorf("prepare connection: %w", err)
 	}
 	// This will not race, since other goroutines will not be able to acquire the
 	// connection from the pool.
@@ -220,17 +220,17 @@ func (p *Pool) CheckHealth() error {
 	closed := p.closed
 	p.closedMu.RUnlock()
 	if closed {
-		return xerrors.New("sqlite pool health: closed")
+		return errors.New("sqlite pool health: closed")
 	}
 
 	select {
 	case <-p.ready:
 		if p.err != nil {
-			return xerrors.Errorf("sqlite pool health: %w", p.err)
+			return fmt.Errorf("sqlite pool health: %w", p.err)
 		}
 		return nil
 	default:
-		return xerrors.New("sqlite pool health: not ready")
+		return errors.New("sqlite pool health: not ready")
 	}
 }
 
@@ -240,7 +240,7 @@ func (p *Pool) open(ctx context.Context, uri string, schema Schema) (*sqlitex.Po
 			select {
 			case <-p.retry:
 			case <-ctx.Done():
-				return nil, xerrors.New("closed before successful migration")
+				return nil, errors.New("closed before successful migration")
 			}
 		}
 
@@ -253,12 +253,12 @@ func (p *Pool) open(ctx context.Context, uri string, schema Schema) (*sqlitex.Po
 		if conn == nil {
 			// Canceled.
 			pool.Close()
-			return nil, xerrors.New("closed before successful migration")
+			return nil, errors.New("closed before successful migration")
 		}
 		if err := p.prepare(conn); err != nil {
 			pool.Put(conn)
 			if closeErr := pool.Close(); closeErr != nil {
-				p.opts.OnError.call(xerrors.Errorf("close after failed connection preparation: %w", closeErr))
+				p.opts.OnError.call(fmt.Errorf("close after failed connection preparation: %w", closeErr))
 			}
 			return nil, err
 		}
@@ -266,7 +266,7 @@ func (p *Pool) open(ctx context.Context, uri string, schema Schema) (*sqlitex.Po
 		pool.Put(conn)
 		if err != nil {
 			if closeErr := pool.Close(); closeErr != nil {
-				p.opts.OnError.call(xerrors.Errorf("close after failed migration: %w", closeErr))
+				p.opts.OnError.call(fmt.Errorf("close after failed migration: %w", closeErr))
 			}
 			return nil, err
 		}
@@ -290,7 +290,7 @@ func migrateDB(ctx context.Context, conn *sqlite.Conn, schema Schema, onStart Si
 		return nil
 	})
 	if err != nil {
-		return xerrors.Errorf("migrate database: %w", err)
+		return fmt.Errorf("migrate database: %w", err)
 	}
 	var dbAppID int32
 	err = sqlitex.ExecTransient(conn, "PRAGMA application_id;", func(stmt *sqlite.Stmt) error {
@@ -298,10 +298,10 @@ func migrateDB(ctx context.Context, conn *sqlite.Conn, schema Schema, onStart Si
 		return nil
 	})
 	if err != nil {
-		return xerrors.Errorf("migrate database: %w", err)
+		return fmt.Errorf("migrate database: %w", err)
 	}
 	if dbAppID != schema.AppID && !(dbAppID == 0 && !hasSchema) {
-		return xerrors.Errorf("migrate database: database application_id = %#x (expected %#x)", dbAppID, schema.AppID)
+		return fmt.Errorf("migrate database: database application_id = %#x (expected %#x)", dbAppID, schema.AppID)
 	}
 	var schemaVersion int
 	err = sqlitex.ExecTransient(conn, "PRAGMA user_version;", func(stmt *sqlite.Stmt) error {
@@ -309,13 +309,13 @@ func migrateDB(ctx context.Context, conn *sqlite.Conn, schema Schema, onStart Si
 		return nil
 	})
 	if err != nil {
-		return xerrors.Errorf("migrate database: %w", err)
+		return fmt.Errorf("migrate database: %w", err)
 	}
 	// Using Sprintf because PRAGMAs don't permit arbitrary expressions, and thus
 	// don't permit using parameter substitution.
 	err = sqlitex.ExecTransient(conn, fmt.Sprintf("PRAGMA application_id = %d;", schema.AppID), nil)
 	if err != nil {
-		return xerrors.Errorf("migrate database: %w", err)
+		return fmt.Errorf("migrate database: %w", err)
 	}
 	onStart.call()
 	migrated := schemaVersion < len(schema.Migrations)
@@ -326,12 +326,12 @@ func migrateDB(ctx context.Context, conn *sqlite.Conn, schema Schema, onStart Si
 		}
 		err := sqlitex.ExecScript(conn, fmt.Sprintf("%s;\nPRAGMA user_version = %d;\n", migration, schemaVersion+1))
 		if err != nil {
-			return xerrors.Errorf("migrate database: apply migrations[%d]: %w", schemaVersion, err)
+			return fmt.Errorf("migrate database: apply migrations[%d]: %w", schemaVersion, err)
 		}
 	}
 	if migrated && schema.RepeatableMigration != "" {
 		if err := sqlitex.ExecScript(conn, schema.RepeatableMigration); err != nil {
-			return xerrors.Errorf("migrate database: apply repeatable migration: %w", err)
+			return fmt.Errorf("migrate database: apply repeatable migration: %w", err)
 		}
 	}
 	return nil

@@ -17,6 +17,8 @@
 package accept
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -72,18 +74,18 @@ func ParseHeader(accept string) (Header, error) {
 	for !p.eof() {
 		if len(h) > 0 {
 			if !p.consume(",") {
-				return nil, xerrors.Errorf("parse accept header: expected ',', found %s", p.first())
+				return nil, fmt.Errorf("parse accept header: expected ',', found %s", p.first())
 			}
 			p.space()
 		}
 
 		r, err := parseMediaRange(p)
 		if err != nil {
-			return nil, xerrors.Errorf("parse accept header: %w", err)
+			return nil, fmt.Errorf("parse accept header: %w", err)
 		}
 		quality, params, err := parseParams(p)
 		if err != nil {
-			return nil, xerrors.Errorf("parse accept header: %w", err)
+			return nil, fmt.Errorf("parse accept header: %w", err)
 		}
 		h = append(h, MediaRange{Range: r, Quality: quality, Params: params})
 	}
@@ -95,14 +97,14 @@ func parseMediaRange(p *parser) (string, error) {
 	input := p.s
 	typ := p.token()
 	if len(typ) == 0 {
-		return "", xerrors.Errorf("parse media range: expected token, found %s", p.first())
+		return "", fmt.Errorf("parse media range: expected token, found %s", p.first())
 	}
 	if !p.consume(sep) {
-		return "", xerrors.Errorf("parse media range: expected %q, found %s", sep, p.first())
+		return "", fmt.Errorf("parse media range: expected %q, found %s", sep, p.first())
 	}
 	subtype := p.token()
 	if len(subtype) == 0 {
-		return "", xerrors.Errorf("parse media range: expected subtype, found %s", p.first())
+		return "", fmt.Errorf("parse media range: expected subtype, found %s", p.first())
 	}
 	return string(input[:len(typ)+len(sep)+len(subtype)]), nil
 }
@@ -115,14 +117,14 @@ func parseParams(p *parser) (float32, map[string][]string, error) {
 		key := string(p.token())
 		p.space()
 		if !p.consume("=") {
-			return 0, nil, xerrors.Errorf("parse parameters: expected '=', found %s", p.first())
+			return 0, nil, fmt.Errorf("parse parameters: expected '=', found %s", p.first())
 		}
 		p.space()
 		var value string
 		if s, err := p.quotedString(); xerrors.Is(err, errNotQuotedString) {
 			value = string(p.token())
 		} else if err != nil {
-			return 0, nil, xerrors.Errorf("parse parameters: %w", err)
+			return 0, nil, fmt.Errorf("parse parameters: %w", err)
 		} else {
 			value = string(s)
 		}
@@ -132,7 +134,7 @@ func parseParams(p *parser) (float32, map[string][]string, error) {
 			// check for qvalue
 			q, err := strconv.ParseFloat(value, 64)
 			if err != nil || q < 0 || 1 < q {
-				return 0, nil, xerrors.Errorf("parse parameters: invalid q value %q")
+				return 0, nil, fmt.Errorf("parse parameters: invalid q value %q", value)
 			}
 			quality = float32(q)
 		} else {
@@ -317,7 +319,7 @@ func (p *parser) token() string {
 	return run
 }
 
-var errNotQuotedString = xerrors.New("not a quoted string")
+var errNotQuotedString = errors.New("not a quoted string")
 
 func (p *parser) quotedString() (string, error) {
 	if len(p.s) == 0 || p.s[0] != '"' {
