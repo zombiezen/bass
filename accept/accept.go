@@ -22,8 +22,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-
-	"golang.org/x/xerrors"
 )
 
 // A Header represents a set of media ranges as sent in the Accept header
@@ -121,7 +119,7 @@ func parseParams(p *parser) (float32, map[string][]string, error) {
 		}
 		p.space()
 		var value string
-		if s, err := p.quotedString(); xerrors.Is(err, errNotQuotedString) {
+		if s, err := p.quotedString(); errors.Is(err, errNotQuotedString) {
 			value = string(p.token())
 		} else if err != nil {
 			return 0, nil, fmt.Errorf("parse parameters: %w", err)
