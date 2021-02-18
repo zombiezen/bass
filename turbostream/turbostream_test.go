@@ -19,12 +19,62 @@ package turbostream
 import (
 	"bytes"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/net/html"
 )
+
+func TestIsSupported(t *testing.T) {
+	tests := []struct {
+		name      string
+		reqHeader http.Header
+		want      bool
+	}{
+		{
+			name: "Empty",
+			want: false,
+		},
+		{
+			name: "OnlyHTML",
+			reqHeader: http.Header{
+				"Accept": {"text/html"},
+			},
+			want: false,
+		},
+		{
+			name: "TurboStreamAndHTML",
+			reqHeader: http.Header{
+				"Accept": {"text/html, text/vnd.turbo-stream.html"},
+			},
+			want: true,
+		},
+		{
+			name: "TurboStreamAfterHTML",
+			reqHeader: http.Header{
+				"Accept": {"text/html, text/vnd.turbo-stream.html;q=0.9"},
+			},
+			want: true,
+		},
+		{
+			name: "Anything",
+			reqHeader: http.Header{
+				"Accept": {"*/*"},
+			},
+			want: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := IsSupported(test.reqHeader)
+			if got != test.want {
+				t.Errorf("IsSupported(...) = %t; want %t", got, test.want)
+			}
+		})
+	}
+}
 
 func TestMarshalText(t *testing.T) {
 	tests := []struct {

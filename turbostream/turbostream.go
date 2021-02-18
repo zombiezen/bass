@@ -25,10 +25,22 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+
+	"zombiezen.com/go/bass/accept"
 )
 
-// ContentType is the value to use for the HTTP response Content-Type header.
-const ContentType = "text/vnd.turbo-stream.html; charset=utf-8"
+// ContentType is the MIME type of a Turbo Stream response.
+const ContentType = "text/vnd.turbo-stream.html"
+
+// IsSupported reports whether the request header indicate that a Turbo Stream
+// response is supported.
+func IsSupported(reqHeader http.Header) bool {
+	h, err := accept.ParseHeader(reqHeader.Get("Accept"))
+	if err != nil {
+		return false
+	}
+	return h.Quality(ContentType, map[string][]string{"charset": {"utf-8"}}) > 0
+}
 
 // Render sends Turbo Stream actions in response to a form submission.
 // See https://turbo.hotwire.dev/handbook/streams#streaming-from-http-responses
@@ -45,7 +57,7 @@ func Render(w http.ResponseWriter, actions ...*Action) error {
 			buf.WriteByte('\n')
 		}
 	}
-	w.Header().Set("Content-Type", ContentType)
+	w.Header().Set("Content-Type", ContentType+"; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
 	io.Copy(w, buf) // ignore errors, since we already wrote
 	return nil
