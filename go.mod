@@ -1,6 +1,6 @@
 module zombiezen.com/go/bass
 
-go 1.15
+go 1.16
 
 require (
 	crawshaw.io/sqlite v0.3.3-0.20201229170853-3aff1a1a78df

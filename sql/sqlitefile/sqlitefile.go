@@ -20,6 +20,7 @@ package sqlitefile
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"reflect"
 	"strings"
 
@@ -45,7 +46,7 @@ type ExecOptions struct {
 // Exec executes the single statement in the given SQL file.
 // Exec is implemented using Conn.Prepare, so subsequent calls to Exec with the
 // same statement will reuse the cached statement object.
-func Exec(conn *sqlite.Conn, fsys FS, filename string, opts *ExecOptions) error {
+func Exec(conn *sqlite.Conn, fsys fs.FS, filename string, opts *ExecOptions) error {
 	query, err := readString(fsys, filename)
 	if err != nil {
 		return fmt.Errorf("exec: %w", err)
@@ -69,7 +70,7 @@ func Exec(conn *sqlite.Conn, fsys FS, filename string, opts *ExecOptions) error 
 
 // ExecTransient executes the single statement in the given SQL file without
 // caching the underlying query.
-func ExecTransient(conn *sqlite.Conn, fsys FS, filename string, opts *ExecOptions) error {
+func ExecTransient(conn *sqlite.Conn, fsys fs.FS, filename string, opts *ExecOptions) error {
 	query, err := readString(fsys, filename)
 	if err != nil {
 		return fmt.Errorf("exec: %w", err)
@@ -96,7 +97,7 @@ func ExecTransient(conn *sqlite.Conn, fsys FS, filename string, opts *ExecOption
 // the Conn. Subsequent calls with the same query will create new Stmts.
 // The caller is responsible for calling Finalize on the returned Stmt when the
 // Stmt is no longer needed.
-func PrepareTransient(conn *sqlite.Conn, fsys FS, filename string) (*sqlite.Stmt, error) {
+func PrepareTransient(conn *sqlite.Conn, fsys fs.FS, filename string) (*sqlite.Stmt, error) {
 	query, err := readString(fsys, filename)
 	if err != nil {
 		return nil, fmt.Errorf("prepare: %w", err)
@@ -112,7 +113,7 @@ func PrepareTransient(conn *sqlite.Conn, fsys FS, filename string) (*sqlite.Stmt
 //
 // The script is wrapped in a SAVEPOINT transaction, which is rolled back on
 // any error.
-func ExecScript(conn *sqlite.Conn, fsys FS, filename string, opts *ExecOptions) (err error) {
+func ExecScript(conn *sqlite.Conn, fsys fs.FS, filename string, opts *ExecOptions) (err error) {
 	queries, err := readString(fsys, filename)
 	if err != nil {
 		return fmt.Errorf("exec: %w", err)
@@ -214,7 +215,7 @@ func stripErrorQuery(err error) error {
 	return err
 }
 
-func readString(fsys FS, filename string) (string, error) {
+func readString(fsys fs.FS, filename string) (string, error) {
 	f, err := fsys.Open(filename)
 	if err != nil {
 		return "", err
