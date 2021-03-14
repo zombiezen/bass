@@ -20,6 +20,7 @@ package static
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -39,7 +40,7 @@ import (
 // Handler is an HTTP handler for a file system.
 type Handler struct {
 	fs      fs.FS
-	errFunc func(path string, err error) string
+	errFunc func(ctx context.Context, path string, err error) string
 }
 
 // NewHandler returns a new Handler that serves the given file system.
@@ -63,6 +64,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // ServeFile serves the given file from the Handler's file system. It primarily
 // uses net/http.ServeContent, but sets a content-based ETag first.
 func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, path string) {
+	ctx := r.Context()
 	if !fs.ValidPath(path) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -78,13 +80,13 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, path string)
 		return
 	}
 	if err != nil {
-		h.error(w, path, err)
+		h.error(ctx, w, path, err)
 		return
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		h.error(w, path, err)
+		h.error(ctx, w, path, err)
 		return
 	}
 	if info.IsDir() {
@@ -95,7 +97,7 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, path string)
 		}
 		contents, err := f.(fs.ReadDirFile).ReadDir(-1)
 		if err != nil {
-			h.error(w, path, err)
+			h.error(ctx, w, path, err)
 			return
 		}
 		dirList(w, contents)
@@ -108,16 +110,16 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, path string)
 	}
 	s, err := toSeeker(f, info.Size())
 	if err != nil {
-		h.error(w, path, err)
+		h.error(ctx, w, path, err)
 		return
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, s); err != nil {
-		h.error(w, path, err)
+		h.error(ctx, w, path, err)
 		return
 	}
 	if _, err := s.Seek(0, io.SeekStart); err != nil {
-		h.error(w, path, err)
+		h.error(ctx, w, path, err)
 		return
 	}
 	w.Header().Set("ETag", `"`+hex.EncodeToString(hash.Sum(nil))+`"`)
@@ -130,19 +132,19 @@ func (h *Handler) ServeFile(w http.ResponseWriter, r *http.Request, path string)
 // error's message.
 //
 // SetErrorFunc must not be called concurrently with ServeHTTP.
-func (h *Handler) SetErrorFunc(f func(path string, err error) string) {
+func (h *Handler) SetErrorFunc(f func(ctx context.Context, path string, err error) string) {
 	if f == nil {
 		panic("nil function passed to static.Handler.SetErrorFunc")
 	}
 	h.errFunc = f
 }
 
-func (h *Handler) error(w http.ResponseWriter, path string, err error) {
-	msg := h.errFunc(path, err)
+func (h *Handler) error(ctx context.Context, w http.ResponseWriter, path string, err error) {
+	msg := h.errFunc(ctx, path, err)
 	http.Error(w, msg, http.StatusInternalServerError)
 }
 
-func defaultErrorFunc(path string, err error) string {
+func defaultErrorFunc(ctx context.Context, path string, err error) string {
 	return err.Error()
 }
 
