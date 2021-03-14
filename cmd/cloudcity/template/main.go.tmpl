@@ -1,0 +1,95 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"io/fs"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"time"
+
+	"github.com/gorilla/mux"
+	"zombiezen.com/go/bass/sigterm"
+	"zombiezen.com/go/log"
+)
+
+type application struct {
+	files fs.FS
+
+	routerOnce sync.Once
+	router     *mux.Router
+}
+
+func (app *application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	app.routerOnce.Do(app.initRouter)
+	app.router.ServeHTTP(w, r)
+}
+
+func (app *application) initRouter() {
+	app.router = mux.NewRouter().StrictSlash(true)
+}
+
+func main() {
+	app := &application{
+		// TODO(now): files: files,
+	}
+	clientPath := flag.String("client", "", "path to client directory (default is to use embedded data)")
+	showDebug := flag.Bool("debug", false, "show debugging output")
+	flag.Parse()
+	if flag.NArg() != 0 {
+		flag.Usage()
+		os.Exit(64)
+	}
+	minLogLevel := log.Info
+	if *showDebug {
+		minLogLevel = log.Debug
+	}
+	log.SetDefault(&log.LevelFilter{
+		Min:    minLogLevel,
+		Output: log.New(os.Stderr, "{{ .ProgramName }}: ", log.StdFlags, nil),
+	})
+	ctx, cancel := signal.NotifyContext(context.Background(), sigterm.Signals()...)
+	defer cancel()
+
+	if *clientPath != "" {
+		app.files = os.DirFS(*clientPath)
+	}
+
+	portString := os.Getenv("PORT")
+	if portString == "" {
+		portString = "8080"
+	}
+	port, err := net.Listen("tcp", ":"+portString)
+	if err != nil {
+		log.Errorf(ctx, "%v", err)
+		os.Exit(1)
+	}
+	log.Infof(ctx, "Listening on http://localhost:%d/", port.Addr().(*net.TCPAddr).Port)
+
+	srv := &http.Server{
+		Handler:           app,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+		ReadHeaderTimeout: 30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+	}
+	idleConnsClosed := make(chan struct{})
+	go func() {
+		defer close(idleConnsClosed)
+		<-ctx.Done()
+		log.Infof(ctx, "Shutting down...")
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Errorf(ctx, "During shutdown: %v", err)
+		}
+	}()
+	exitCode := 0
+	if err := srv.Serve(port); !errors.Is(err, http.ErrServerClosed) {
+		log.Errorf(ctx, "%v", err)
+		exitCode = 1
+	}
+	<-idleConnsClosed
+	os.Exit(exitCode)
+}
