@@ -25,10 +25,12 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	slashpath "path"
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/spf13/cobra"
 	"zombiezen.com/go/bass/sigterm"
@@ -95,6 +97,10 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 	}
 
 	// Copy files into directory.
+	currentUser, err := user.Current()
+	if err != nil {
+		return err
+	}
 	modulePath, err := readModulePath(ctx, dir)
 	if err != nil {
 		return err
@@ -121,8 +127,12 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 			buf := new(bytes.Buffer)
 			err = tmpl.Execute(buf, struct {
 				ProgramName string
+				Author      string
+				Year        int
 			}{
 				ProgramName: slashpath.Base(modulePath),
+				Author:      currentUser.Name,
+				Year:        time.Now().Year(),
 			})
 			if err != nil {
 				return err
@@ -132,6 +142,9 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 		}
 		dst := filepath.Join(dir, filepath.FromSlash(subdir), base)
 		fmt.Fprintf(os.Stderr, "cloudcity: creating %s\n", dst)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o777); err != nil {
+			return err
+		}
 		if err := os.WriteFile(dst, data, 0o666); err != nil {
 			return err
 		}
@@ -153,7 +166,7 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 	}
 	getCmd := exec.Command("go", "get",
 		"github.com/gorilla/mux@v1.8.0",
-		"zombiezen.com/go/bass/sigterm@5ced4a68e387b311c38014b33a7de936cd98a305",
+		"zombiezen.com/go/bass/sigterm@c2eb6d45b4ba8135746e8b5e49e0aeca88331e41",
 		"zombiezen.com/go/log@v1.0.3",
 	)
 	getCmd.Dir = dir
@@ -167,6 +180,23 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 	tidyCmd.Stdout = os.Stderr
 	tidyCmd.Stderr = os.Stderr
 	if err := sigterm.Run(ctx, tidyCmd); err != nil {
+		return err
+	}
+
+	// Install JavaScript dependencies and build.
+	clientDir := filepath.Join(dir, "client")
+	npmInstallCmd := exec.Command("npm", "install")
+	npmInstallCmd.Dir = clientDir
+	npmInstallCmd.Stdout = os.Stderr
+	npmInstallCmd.Stderr = os.Stderr
+	if err := sigterm.Run(ctx, npmInstallCmd); err != nil {
+		return err
+	}
+	npmBuildCmd := exec.Command("npm", "run", "build")
+	npmBuildCmd.Dir = clientDir
+	npmBuildCmd.Stdout = os.Stderr
+	npmBuildCmd.Stderr = os.Stderr
+	if err := sigterm.Run(ctx, npmBuildCmd); err != nil {
 		return err
 	}
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"flag"
 	"io/fs"
@@ -17,8 +18,12 @@ import (
 	"zombiezen.com/go/log"
 )
 
+//go:embed client/dist
+//go:embed client/*.html
+var embeddedFiles embed.FS
+
 type application struct {
-	files fs.FS
+	clientFiles fs.FS
 
 	routerOnce sync.Once
 	router     *mux.Router
@@ -29,44 +34,63 @@ func (app *application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	app.router.ServeHTTP(w, r)
 }
 
-func (app *application) initRouter() {
-	app.router = mux.NewRouter().StrictSlash(true)
-}
-
 func main() {
+	clientFiles, err := fs.Sub(embeddedFiles, "client")
+	if err != nil {
+		panic(err)
+	}
+
+	// Configure the application with command-line flags.
+	// Edit here!
 	app := &application{
-		// TODO(now): files: files,
+		clientFiles: clientFiles,
 	}
 	clientPath := flag.String("client", "", "path to client directory (default is to use embedded data)")
 	showDebug := flag.Bool("debug", false, "show debugging output")
+
+	// Parse command-line flags and set up logging.
 	flag.Parse()
 	if flag.NArg() != 0 {
 		flag.Usage()
 		os.Exit(64)
 	}
+	ctx, cancel := signal.NotifyContext(context.Background(), sigterm.Signals()...)
+	initLogging(*showDebug)
+
+	// Set up the application.
+	// Edit here!
+	if *clientPath != "" {
+		app.clientFiles = os.DirFS(*clientPath)
+	}
+
+	// Run the application.
+	err = serve(ctx, app)
+	cancel()
+	if err != nil {
+		log.Errorf(context.Background(), "%v", err)
+		os.Exit(1)
+	}
+}
+
+func initLogging(showDebug bool) {
 	minLogLevel := log.Info
-	if *showDebug {
+	if showDebug {
 		minLogLevel = log.Debug
 	}
 	log.SetDefault(&log.LevelFilter{
 		Min:    minLogLevel,
 		Output: log.New(os.Stderr, "{{ .ProgramName }}: ", log.StdFlags, nil),
 	})
-	ctx, cancel := signal.NotifyContext(context.Background(), sigterm.Signals()...)
-	defer cancel()
+}
 
-	if *clientPath != "" {
-		app.files = os.DirFS(*clientPath)
-	}
-
+func serve(ctx context.Context, app *application) error {
 	portString := os.Getenv("PORT")
 	if portString == "" {
 		portString = "8080"
 	}
 	port, err := net.Listen("tcp", ":"+portString)
 	if err != nil {
-		log.Errorf(ctx, "%v", err)
-		os.Exit(1)
+		return err
 	}
 	log.Infof(ctx, "Listening on http://localhost:%d/", port.Addr().(*net.TCPAddr).Port)
 
@@ -85,11 +109,10 @@ func main() {
 			log.Errorf(ctx, "During shutdown: %v", err)
 		}
 	}()
-	exitCode := 0
 	if err := srv.Serve(port); !errors.Is(err, http.ErrServerClosed) {
-		log.Errorf(ctx, "%v", err)
-		exitCode = 1
+		// TODO(soon): This leaks a goroutine.
+		return err
 	}
 	<-idleConnsClosed
-	os.Exit(exitCode)
+	return nil
 }

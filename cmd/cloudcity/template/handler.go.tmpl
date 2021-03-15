@@ -1,0 +1,129 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"html/template"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/url"
+	"strconv"
+
+	"github.com/gorilla/mux"
+	"zombiezen.com/go/bass/templateloader"
+	"zombiezen.com/go/bass/turbostream"
+	"zombiezen.com/go/log"
+)
+
+var (
+	errNotFound   = errors.New("not found")
+	errBadRequest = errors.New("bad request")
+)
+
+type request struct {
+	pathVars            map[string]string
+	form                url.Values
+	supportsTurboStream bool
+}
+
+type response struct {
+	templateName string
+	data         interface{}
+	isStream     bool
+
+	seeOther string
+}
+
+type htmlHandler struct {
+	files fs.FS
+	f     func(context.Context, *request) (*response, error)
+}
+
+func (app *application) newHTMLHandler(f func(context.Context, *request) (*response, error)) htmlHandler {
+	return htmlHandler{app.clientFiles, f}
+}
+
+func (h htmlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	r.ParseForm()
+	if err := r.ParseMultipartForm(1 << 20 /* 1 MiB */); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		http.Error(w, "Invalid form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if r.MultipartForm != nil {
+		// Don't need to keep any files for now, so removing.
+		if err := r.MultipartForm.RemoveAll(); err != nil {
+			log.Warnf(ctx, "Cleaning up multipart form data: %v", err)
+		}
+	}
+
+	supportsTurboStream := turbostream.IsSupported(r.Header)
+	req := &request{
+		pathVars:            mux.Vars(r),
+		form:                r.Form,
+		supportsTurboStream: supportsTurboStream,
+	}
+
+	resp, err := h.f(ctx, req)
+	if errors.Is(err, errNotFound) {
+		// TODO(someday): Render 404.html
+		http.NotFound(w, r)
+		return
+	}
+	if errors.Is(err, errBadRequest) {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	const genericMessage = "Error while serving page. Check server logs."
+	if err != nil {
+		log.Errorf(ctx, "%s: %v", r.URL.Path, err)
+		http.Error(w, genericMessage, http.StatusInternalServerError)
+		return
+	}
+	if resp.seeOther != "" {
+		http.Redirect(w, r, resp.seeOther, http.StatusSeeOther)
+		return
+	}
+
+	// Render HTML template.
+	if resp.templateName == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	t, err := h.findTemplate(resp.templateName, resp.isStream)
+	if err != nil {
+		// Fine to expose error to client, since templates are trusted and not based
+		// on user input.
+		log.Errorf(ctx, "Render %s: %v", r.URL.Path, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf := new(bytes.Buffer)
+	if err := t.Execute(buf, resp.data); err != nil {
+		log.Errorf(ctx, "Render %s: %v", r.URL.Path, err)
+		http.Error(w, genericMessage, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+	if r.Method != http.MethodHead {
+		io.Copy(w, buf)
+	}
+}
+
+func (h htmlHandler) findTemplate(templateName string, isStream bool) (*template.Template, error) {
+	if isStream {
+		t, err := template.New(templateName).ParseFS(h.files, templateName)
+		if err != nil {
+			return nil, err
+		}
+		return templateloader.AddPartials(t, h.files)
+	}
+	base, err := templateloader.Base(h.files, nil)
+	if err != nil {
+		return nil, err
+	}
+	return templateloader.Extend(base, h.files, templateName)
+}

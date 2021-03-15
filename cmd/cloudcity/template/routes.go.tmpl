@@ -1,0 +1,40 @@
+package main
+
+import (
+	"context"
+	"io/fs"
+	"net/http"
+
+	"github.com/gorilla/mux"
+	"zombiezen.com/go/bass/static"
+	"zombiezen.com/go/log"
+)
+
+func (app *application) initRouter() {
+	app.router = mux.NewRouter().StrictSlash(true)
+	app.initClientRoute()
+
+	// Add routes here!
+	app.router.Handle("/", app.newHTMLHandler(app.index))
+}
+
+func (app *application) index(ctx context.Context, req *request) (*response, error) {
+	return &response{
+		templateName: "index.html",
+		data:         nil,
+	}, nil
+}
+
+func (app *application) initClientRoute() {
+	dist, err := fs.Sub(app.clientFiles, "dist")
+	if err != nil {
+		log.Errorf(context.Background(), "Could not get /client/dist files: %v", err)
+		return
+	}
+	handler := static.NewHandler(dist)
+	handler.SetErrorFunc(func(ctx context.Context, path string, err error) string {
+		log.Errorf(ctx, "Client file %s: %v", path, err)
+		return "internal server error"
+	})
+	app.router.PathPrefix("/client/").Handler(http.StripPrefix("/client", handler))
+}
