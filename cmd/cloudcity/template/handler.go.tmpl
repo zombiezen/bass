@@ -11,23 +11,28 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"zombiezen.com/go/bass/templateloader"
 	"zombiezen.com/go/bass/turbostream"
 	"zombiezen.com/go/log"
 )
 
+// Errors recognized by htmlHandler.
 var (
 	errNotFound   = errors.New("not found")
 	errBadRequest = errors.New("bad request")
 )
 
+// request is the parsed version of an HTTP request.
 type request struct {
 	pathVars            map[string]string
 	form                url.Values
 	supportsTurboStream bool
 }
 
+// response is a deferred invocation of an HTML template returned by
+// an htmlHandler function.
 type response struct {
 	templateName string
 	data         interface{}
@@ -36,6 +41,8 @@ type response struct {
 	seeOther string
 }
 
+// htmlHandler is an http.Handler that calls an application method and then
+// renders a template from the client directory.
 type htmlHandler struct {
 	files fs.FS
 	f     func(context.Context, *request) (*response, error)
@@ -92,7 +99,7 @@ func (h htmlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	t, err := h.findTemplate(resp.templateName, resp.isStream)
+	t, err := h.findTemplate(resp.templateName, resp.isStream, h.templateFuncs(r))
 	if err != nil {
 		// Fine to expose error to client, since templates are trusted and not based
 		// on user input.
@@ -113,15 +120,24 @@ func (h htmlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h htmlHandler) findTemplate(templateName string, isStream bool) (*template.Template, error) {
+// templateFuncs returns the map of additional functions to make available to
+// HTML templates.
+func (h htmlHandler) templateFuncs(r *http.Request) template.FuncMap {
+	// Edit here!
+	return template.FuncMap{
+		"csrfField": func() template.HTML { return csrf.TemplateField(r) },
+	}
+}
+
+func (h htmlHandler) findTemplate(templateName string, isStream bool, funcs template.FuncMap) (*template.Template, error) {
 	if isStream {
-		t, err := template.New(templateName).ParseFS(h.files, templateName)
+		t, err := template.New(templateName).Funcs(funcs).ParseFS(h.files, templateName)
 		if err != nil {
 			return nil, err
 		}
 		return templateloader.AddPartials(t, h.files)
 	}
-	base, err := templateloader.Base(h.files, nil)
+	base, err := templateloader.Base(h.files, funcs)
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <title>
-    {{"{{-"}} block "title" . {{"}}"}}{{ .ProgramName }}{{"{{"}} end {{"-}}"}}
+    {{- block "title" . }}/*{ .ProgramName | html }*/{{ end -}}
   </title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" type="text/css" href="/client/app.css">
@@ -10,13 +10,13 @@
 </head>
 <body>
   <header>
-    <h1>{{ .ProgramName }}</h1>
+    <h1>/*{ .ProgramName | html }*/</h1>
   </header>
   <main>
-    {{"{{-"}} block "main" . {{"}}{{"}} end {{"-}}"}}
+    {{- block "main" . }}{{ end -}}
   </main>
   <footer>
-    {{ .Author }}, {{ .Year }}
+    /*{ .Author | html }*/, /*{ .Year }*/
   </footer>
 </body>
 </html>

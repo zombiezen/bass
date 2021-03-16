@@ -19,7 +19,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -36,7 +38,7 @@ import (
 	"zombiezen.com/go/bass/sigterm"
 )
 
-//go:embed template
+//go:embed template template/*.tmpl
 var initTemplate embed.FS
 
 type initCmd struct {
@@ -96,15 +98,47 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 		return fmt.Errorf("go mod init: %w", err)
 	}
 
-	// Copy files into directory.
+	// Prepare template variables.
+	var templateData struct {
+		ProgramName string
+		Author      string
+		Year        int
+		CSRFKey     string
+	}
+	templateData.Year = time.Now().Year()
 	currentUser, err := user.Current()
 	if err != nil {
 		return err
 	}
+	templateData.Author = currentUser.Name
 	modulePath, err := readModulePath(ctx, dir)
 	if err != nil {
 		return err
 	}
+	templateData.ProgramName = slashpath.Base(modulePath)
+	var csrfKeyBits [32]byte
+	if _, err := rand.Read(csrfKeyBits[:]); err != nil {
+		return fmt.Errorf("generate CSRF key: %w", err)
+	}
+	templateData.CSRFKey = hex.EncodeToString(csrfKeyBits[:])
+	funcs := template.FuncMap{
+		"toEnv": func(s string) string {
+			sb := new(strings.Builder)
+			for _, c := range s {
+				switch {
+				case 'a' <= c && c <= 'z':
+					sb.WriteRune(c - 'a' + 'A')
+				case 'A' <= c && c <= 'Z' || '0' <= c && c <= '9':
+					sb.WriteRune(c)
+				default:
+					sb.WriteRune('_')
+				}
+			}
+			return sb.String()
+		},
+	}
+
+	// Copy files into directory.
 	const templateDir = "template"
 	err = fs.WalkDir(initTemplate, templateDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -120,21 +154,12 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 		const templateExt = ".tmpl"
 		subdir, base := slashpath.Split(strings.TrimPrefix(path, templateDir+"/"))
 		if strings.HasSuffix(path, templateExt) {
-			tmpl, err := template.New(base).Parse(string(data))
+			tmpl, err := template.New(base).Funcs(funcs).Delims("/*{", "}*/").Parse(string(data))
 			if err != nil {
 				return err
 			}
 			buf := new(bytes.Buffer)
-			err = tmpl.Execute(buf, struct {
-				ProgramName string
-				Author      string
-				Year        int
-			}{
-				ProgramName: slashpath.Base(modulePath),
-				Author:      currentUser.Name,
-				Year:        time.Now().Year(),
-			})
-			if err != nil {
+			if err := tmpl.Execute(buf, templateData); err != nil {
 				return err
 			}
 			data = buf.Bytes()
@@ -165,8 +190,10 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 		return err
 	}
 	getCmd := exec.Command("go", "get",
+		"github.com/gorilla/csrf@v1.7.0",
 		"github.com/gorilla/handlers@v1.5.1",
 		"github.com/gorilla/mux@v1.8.0",
+		"github.com/yourbase/commons/ini@v0.9.1",
 		"zombiezen.com/go/bass/sigterm@c2eb6d45b4ba8135746e8b5e49e0aeca88331e41",
 		"zombiezen.com/go/log@v1.0.3",
 	)

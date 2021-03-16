@@ -1,3 +1,13 @@
 {{ define "main" }}
-  <p>Hello, World!</p>
+  <p>Hello, {{ .Subject }}!</p>
+
+  <form method="POST" action="/">
+    {{ csrfField }}
+    <label>
+      Subject:
+      <input type="text" name="subject" value="{{ .Subject }}">
+    </label>
+    <br>
+    <input type="submit">
+  </form>
 {{ end }}

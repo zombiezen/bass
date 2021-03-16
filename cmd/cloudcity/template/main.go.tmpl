@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
@@ -13,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
+	"github.com/yourbase/commons/ini"
 	"zombiezen.com/go/bass/sigterm"
 	"zombiezen.com/go/log"
 )
@@ -22,6 +27,10 @@ import (
 //go:embed client/*.html
 var embeddedFiles embed.FS
 
+// application handles HTTP requests.
+//
+// You can initialize new fields in main() and then use them in your
+// page handlers.
 type application struct {
 	clientFiles fs.FS
 
@@ -35,20 +44,25 @@ func (app *application) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	clientFiles, err := fs.Sub(embeddedFiles, "client")
-	if err != nil {
-		panic(err)
-	}
+	readEnvFile()
 
 	// Configure the application with command-line flags.
 	// Edit here!
 	app := &application{
-		clientFiles: clientFiles,
+		clientFiles: mustSubFS(embeddedFiles, "client"),
 	}
 	clientPath := flag.String("client", "", "path to client directory (default is to use embedded data)")
+	/*{ with .ProgramName | toEnv | printf "%s_CSRF_KEY" -}*/
+	csrfKeyHex := flag.String(
+		"csrf-key",
+		os.Getenv("/*{ . }*/"),
+		"hex-encoded CSRF key. Should be 32 or 64 bytes long. "+
+			"Overrides the /*{ . }*/ environment variable.",
+	)
+	/*{- end }*/
 	showDebug := flag.Bool("debug", false, "show debugging output")
 
-	// Parse command-line flags and set up logging.
+	// Parse command-line arguments and set up logging.
 	flag.Parse()
 	if flag.NArg() != 0 {
 		flag.Usage()
@@ -62,13 +76,36 @@ func main() {
 	if *clientPath != "" {
 		app.clientFiles = os.DirFS(*clientPath)
 	}
+	csrfKey, err := hex.DecodeString(*csrfKeyHex)
+	if err != nil {
+		log.Errorf(ctx, "Invalid CSRF key: %v", err)
+		os.Exit(1)
+	}
 
 	// Run the application.
-	err = serve(ctx, app)
+	err = serve(ctx, app, csrfKey)
 	cancel()
 	if err != nil {
 		log.Errorf(context.Background(), "%v", err)
 		os.Exit(1)
+	}
+}
+
+// readEnvFile reads the .env file in the current working directory, if present,
+// and copies the values into the current process's environment.
+func readEnvFile() {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return
+	}
+	cfg, err := ini.Parse(bytes.NewReader(data), nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "/*{ .ProgramName }*/: invalid .env file:", err)
+		return
+	}
+	vars := cfg.Section("")
+	for k := range vars {
+		os.Setenv(k, vars.Get(k))
 	}
 }
 
@@ -79,11 +116,11 @@ func initLogging(showDebug bool) {
 	}
 	log.SetDefault(&log.LevelFilter{
 		Min:    minLogLevel,
-		Output: log.New(os.Stderr, "{{ .ProgramName }}: ", log.StdFlags, nil),
+		Output: log.New(os.Stderr, "/*{ .ProgramName }*/: ", log.StdFlags, nil),
 	})
 }
 
-func serve(ctx context.Context, app *application) error {
+func serve(ctx context.Context, app *application, csrfKey []byte) error {
 	portString := os.Getenv("PORT")
 	if portString == "" {
 		portString = "8080"
@@ -94,8 +131,12 @@ func serve(ctx context.Context, app *application) error {
 	}
 	log.Infof(ctx, "Listening on http://localhost:%d/", port.Addr().(*net.TCPAddr).Port)
 
+	csrfMiddleware := csrf.Protect(
+		csrfKey,
+		csrf.Path("/"),
+	)
 	srv := &http.Server{
-		Handler:           app,
+		Handler:           csrfMiddleware(app),
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -115,4 +156,12 @@ func serve(ctx context.Context, app *application) error {
 	}
 	<-idleConnsClosed
 	return nil
+}
+
+func mustSubFS(fsys fs.FS, name string) fs.FS {
+	sub, err := fs.Sub(fsys, name)
+	if err != nil {
+		panic(err)
+	}
+	return sub
 }
