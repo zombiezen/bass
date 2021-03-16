@@ -165,6 +165,7 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 		return err
 	}
 	getCmd := exec.Command("go", "get",
+		"github.com/gorilla/handlers@v1.5.1",
 		"github.com/gorilla/mux@v1.8.0",
 		"zombiezen.com/go/bass/sigterm@c2eb6d45b4ba8135746e8b5e49e0aeca88331e41",
 		"zombiezen.com/go/log@v1.0.3",

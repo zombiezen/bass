@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"zombiezen.com/go/bass/static"
 	"zombiezen.com/go/log"
@@ -15,7 +16,10 @@ func (app *application) initRouter() {
 	app.initClientRoute()
 
 	// Add routes here!
-	app.router.Handle("/", app.newHTMLHandler(app.index))
+	app.router.Handle("/", handlers.MethodHandler{
+		http.MethodGet:  app.newHTMLHandler(app.index),
+		http.MethodHead: app.newHTMLHandler(app.index),
+	})
 }
 
 func (app *application) index(ctx context.Context, req *request) (*response, error) {
