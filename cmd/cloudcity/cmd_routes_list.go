@@ -123,7 +123,7 @@ func (cmd *listRoutesCmd) run(ctx context.Context) (err error) {
 					})
 				}
 			} else {
-				handlerPos := pkg.Fset.Position(node.Lparen)
+				handlerPos := pkg.Fset.Position(node.Args[1].Pos())
 				routePos := jsonPosition{
 					Filename: handlerPos.Filename,
 					Line:     handlerPos.Line,
