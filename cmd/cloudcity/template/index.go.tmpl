@@ -1,0 +1,28 @@
+package main
+
+import (
+	"context"
+	"net/url"
+)
+
+func (app *application) index(ctx context.Context, req *request) (*response, error) {
+	// Edit here!
+	var data struct {
+		Subject string
+	}
+	data.Subject = req.form.Get("subject")
+	if data.Subject == "" {
+		data.Subject = "World"
+	}
+	return &response{
+		templateName: "index.html",
+		data:         data,
+	}, nil
+}
+
+func (app *application) submitIndexForm(ctx context.Context, req *request) (*response, error) {
+	// Edit here!
+	return &response{
+		seeOther: "/?" + url.Values{"subject": {req.form.Get("subject")}}.Encode(),
+	}, nil
+}

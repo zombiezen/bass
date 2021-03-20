@@ -4,7 +4,6 @@ import (
 	"context"
 	"io/fs"
 	"net/http"
-	"net/url"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -20,30 +19,8 @@ func (app *application) initRouter() {
 	app.router.Handle("/", handlers.MethodHandler{
 		http.MethodGet:  app.newHTMLHandler(app.index),
 		http.MethodHead: app.newHTMLHandler(app.index),
-		http.MethodPost: app.newHTMLHandler(app.submitForm),
+		http.MethodPost: app.newHTMLHandler(app.submitIndexForm),
 	})
-}
-
-func (app *application) index(ctx context.Context, req *request) (*response, error) {
-	// Edit here!
-	var data struct {
-		Subject string
-	}
-	data.Subject = req.form.Get("subject")
-	if data.Subject == "" {
-		data.Subject = "World"
-	}
-	return &response{
-		templateName: "index.html",
-		data:         data,
-	}, nil
-}
-
-func (app *application) submitForm(ctx context.Context, req *request) (*response, error) {
-	// Edit here!
-	return &response{
-		seeOther: "/?" + url.Values{"subject": {req.form.Get("subject")}}.Encode(),
-	}, nil
 }
 
 func (app *application) initClientRoute() {
