@@ -57,6 +57,17 @@ func main() {
 	)
 	rootCmd.AddCommand(clientCmd)
 
+	routesCmd := &cobra.Command{
+		Use:           "routes",
+		Short:         "Manage routes",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+	routesCmd.AddCommand(
+		newListRoutesCmd(),
+	)
+	rootCmd.AddCommand(routesCmd)
+
 	err := rootCmd.ExecuteContext(ctx)
 	cancel()
 	if err != nil {
