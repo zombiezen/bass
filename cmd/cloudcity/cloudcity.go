@@ -21,11 +21,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"zombiezen.com/go/bass/sigterm"
 )
+
+const clientDirectoryName = "client"
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), sigterm.Signals()...)
@@ -38,10 +43,44 @@ func main() {
 	rootCmd.AddCommand(
 		newInitCmd(),
 	)
+
+	clientCmd := &cobra.Command{
+		Use:           "client",
+		Short:         "Mange client-side code",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+	clientCmd.AddCommand(
+		newAddControllerCmd(),
+		newBuildClientCmd(),
+	)
+	rootCmd.AddCommand(clientCmd)
+
 	err := rootCmd.ExecuteContext(ctx)
 	cancel()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cloudcity:", err)
 		os.Exit(1)
 	}
+}
+
+// findGoModuleDir locates the root Go module directory.
+func findGoModuleDir(ctx context.Context, dir string) (string, error) {
+	c := exec.Command("go", "env", "GOMOD")
+	stdout := new(strings.Builder)
+	c.Stdout = stdout
+	stderr := new(strings.Builder)
+	c.Stderr = stderr
+	c.Dir = dir
+	if err := sigterm.Run(ctx, c); err != nil {
+		if stderr.Len() == 0 {
+			return "", fmt.Errorf("find go module directory for %s: %w", dir, err)
+		}
+		return "", fmt.Errorf("find go module directory for %s: %w; stderr:\n%s", dir, err, strings.TrimSuffix(stderr.String(), "\n"))
+	}
+	gomod := strings.TrimSuffix(stdout.String(), "\n")
+	if gomod == "" || gomod == "/dev/null" || gomod == "NUL" {
+		return "", fmt.Errorf("find go module directory for %s: not found", gomod)
+	}
+	return filepath.Dir(gomod), nil
 }

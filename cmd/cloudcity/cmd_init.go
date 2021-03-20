@@ -212,19 +212,10 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 	}
 
 	// Install JavaScript dependencies and build.
-	clientDir := filepath.Join(dir, "client")
-	npmInstallCmd := exec.Command("npm", "install")
-	npmInstallCmd.Dir = clientDir
-	npmInstallCmd.Stdout = os.Stderr
-	npmInstallCmd.Stderr = os.Stderr
-	if err := sigterm.Run(ctx, npmInstallCmd); err != nil {
-		return err
+	bcc := &buildClientCmd{
+		install: true,
 	}
-	npmBuildCmd := exec.Command("npm", "run", "build")
-	npmBuildCmd.Dir = clientDir
-	npmBuildCmd.Stdout = os.Stderr
-	npmBuildCmd.Stderr = os.Stderr
-	if err := sigterm.Run(ctx, npmBuildCmd); err != nil {
+	if err := bcc.build(ctx, dir); err != nil {
 		return err
 	}
 

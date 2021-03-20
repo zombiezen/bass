@@ -1,4 +1,6 @@
 import { Application } from 'stimulus';
+import { definitions } from 'stimulus:./controllers';
 import '@hotwired/turbo';
 
-Application.start();
+const application = Application.start();
+application.load(definitions);
