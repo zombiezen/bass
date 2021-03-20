@@ -42,6 +42,7 @@ func main() {
 	}
 	rootCmd.AddCommand(
 		newInitCmd(),
+		newServerCmd(),
 	)
 
 	clientCmd := &cobra.Command{
