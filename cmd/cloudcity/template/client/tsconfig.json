@@ -5,6 +5,7 @@
     "module": "es2015",
     "target": "es2015",
     "esModuleInterop": true,
+    "isolatedModules": true,
     "moduleResolution": "node",
     "lib": ["dom", "dom.iterable", "es2015"],
     "strict": true,
