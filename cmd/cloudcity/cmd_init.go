@@ -180,21 +180,12 @@ func (cmd *initCmd) run(ctx context.Context) (err error) {
 	}
 
 	// Install Go dependencies.
-	replaceCmd := exec.Command("go", "mod", "edit",
-		"-replace=crawshaw.io/sqlite@v0.3.3-0.20201229170853-3aff1a1a78df="+
-			"github.com/zombiezen/sqlite@v0.3.3-0.20201229170853-3aff1a1a78df")
-	replaceCmd.Dir = dir
-	replaceCmd.Stdout = os.Stderr
-	replaceCmd.Stderr = os.Stderr
-	if err := sigterm.Run(ctx, replaceCmd); err != nil {
-		return err
-	}
 	getCmd := exec.Command("go", "get",
 		"github.com/gorilla/csrf@v1.7.0",
 		"github.com/gorilla/handlers@v1.5.1",
 		"github.com/gorilla/mux@v1.8.0",
 		"github.com/yourbase/commons/ini@v0.9.1",
-		"zombiezen.com/go/bass/sigterm@c2eb6d45b4ba8135746e8b5e49e0aeca88331e41",
+		"zombiezen.com/go/bass/sigterm@cb0af0b391a447f2a733aff1cf175e456c2d27af",
 		"zombiezen.com/go/log@v1.0.3",
 	)
 	getCmd.Dir = dir
