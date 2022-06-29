@@ -25,6 +25,7 @@ import (
 	"io/fs"
 	slashpath "path"
 	"strings"
+	texttemplate "text/template"
 )
 
 // Base parses base.html and any partial templates present in the file system.
@@ -43,6 +44,19 @@ func Base(fsys fs.FS, funcs template.FuncMap) (*template.Template, error) {
 // ".html" are stripped from the template name, so "shared/_menu.html" will be
 // available as "shared/menu".
 func AddPartials(t *template.Template, fsys fs.FS) (*template.Template, error) {
+	return addPartials(t, fsys, ".html")
+}
+
+// AddTextPartials searches the given file system for partial templates,
+// parses them, and adds them to t. Partial templates are files that start with
+// an underscore ("_") and end with the extension ".txt". The underscore and
+// ".txt" are stripped from the template name, so "shared/_menu.txt" will be
+// available as "shared/menu".
+func AddTextPartials(t *texttemplate.Template, fsys fs.FS) (*texttemplate.Template, error) {
+	return addPartials(t, fsys, ".txt")
+}
+
+func addPartials[T templateType[T]](t T, fsys fs.FS, ext string) (T, error) {
 	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -58,7 +72,6 @@ func AddPartials(t *template.Template, fsys fs.FS) (*template.Template, error) {
 			}
 			return nil
 		}
-		const ext = ".html"
 		if !(strings.HasPrefix(name, "_") && strings.HasSuffix(name, ext)) {
 			// Not a partial template: ignore.
 			return nil
@@ -68,7 +81,8 @@ func AddPartials(t *template.Template, fsys fs.FS) (*template.Template, error) {
 		return err
 	})
 	if err != nil {
-		return nil, err
+		var zero T
+		return zero, err
 	}
 	return t, nil
 }
@@ -78,20 +92,36 @@ func AddPartials(t *template.Template, fsys fs.FS) (*template.Template, error) {
 // file system. It returns an error if the base template has already been
 // executed.
 func Extend(base *template.Template, fsys fs.FS, name string) (*template.Template, error) {
+	return extend(base, fsys, name)
+}
+
+func extend[T templateType[T]](base T, fsys fs.FS, name string) (T, error) {
+	var zero T
 	tmpl, err := base.Clone()
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 	if _, err := parse(tmpl.New(name), fsys, name); err != nil {
-		return nil, err
+		return zero, err
 	}
 	return tmpl, nil
 }
 
-func parse(t *template.Template, fsys fs.FS, filename string) (*template.Template, error) {
+// ParseFile parses a single file (not a glob pattern) as a template body for t.
+func ParseFile(t *template.Template, fsys fs.FS, filename string) (*template.Template, error) {
+	return parse(t, fsys, filename)
+}
+
+// ParseTextFile parses a single file (not a glob pattern) as a template body for t.
+func ParseTextFile(t *texttemplate.Template, fsys fs.FS, filename string) (*texttemplate.Template, error) {
+	return parse(t, fsys, filename)
+}
+
+func parse[T templateType[T]](t T, fsys fs.FS, filename string) (T, error) {
 	text, err := readString(fsys, filename)
 	if err != nil {
-		return nil, err
+		var zero T
+		return zero, err
 	}
 	return t.Parse(text)
 }
@@ -108,4 +138,10 @@ func readString(fsys fs.FS, filename string) (string, error) {
 		return "", fmt.Errorf("%s: %w", filename, err)
 	}
 	return content.String(), nil
+}
+
+type templateType[T any] interface {
+	New(name string) T
+	Clone() (T, error)
+	Parse(text string) (T, error)
 }
