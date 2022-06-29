@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -41,7 +42,7 @@ func (h Header) String() string {
 }
 
 // Quality returns the quality of a content type based on the media ranges in h.
-func (h Header) Quality(contentType string, params map[string][]string) float32 {
+func (h Header) Quality(contentType string, params map[string]string) float32 {
 	results := make(mediaRangeMatches, 0, len(h))
 	for i := range h {
 		mr := &h[i]
@@ -104,15 +105,16 @@ func parseMediaRange(p *parser) (string, error) {
 	if len(subtype) == 0 {
 		return "", fmt.Errorf("parse media range: expected subtype, found %s", p.first())
 	}
-	return string(input[:len(typ)+len(sep)+len(subtype)]), nil
+	return string(strings.ToLower(input[:len(typ)+len(sep)+len(subtype)])), nil
 }
 
-func parseParams(p *parser) (float32, map[string][]string, error) {
-	quality, params := float32(1.0), make(map[string][]string)
+func parseParams(p *parser) (float32, map[string]string, error) {
+	quality, params := float32(1.0), make(map[string]string)
+	qset := false
 	p.space()
 	for p.consume(";") {
 		p.space()
-		key := string(p.token())
+		key := strings.ToLower(p.token())
 		p.space()
 		if !p.consume("=") {
 			return 0, nil, fmt.Errorf("parse parameters: expected '=', found %s", p.first())
@@ -120,7 +122,7 @@ func parseParams(p *parser) (float32, map[string][]string, error) {
 		p.space()
 		var value string
 		if s, err := p.quotedString(); errors.Is(err, errNotQuotedString) {
-			value = string(p.token())
+			value = p.token()
 		} else if err != nil {
 			return 0, nil, fmt.Errorf("parse parameters: %w", err)
 		} else {
@@ -130,13 +132,20 @@ func parseParams(p *parser) (float32, map[string][]string, error) {
 
 		if key == "q" {
 			// check for qvalue
+			if qset {
+				return 0, nil, fmt.Errorf("parse parameters: duplicate q value")
+			}
 			q, err := strconv.ParseFloat(value, 64)
 			if err != nil || q < 0 || 1 < q {
 				return 0, nil, fmt.Errorf("parse parameters: invalid q value %q", value)
 			}
 			quality = float32(q)
+			qset = true
 		} else {
-			params[key] = append(params[key], value)
+			if _, dupe := params[key]; dupe {
+				return 0, nil, fmt.Errorf("parse parameters: duplicate name %q", key)
+			}
+			params[key] = value
 		}
 	}
 	return quality, params, nil
@@ -147,11 +156,11 @@ func parseParams(p *parser) (float32, map[string][]string, error) {
 type MediaRange struct {
 	Range   string
 	Quality float32
-	Params  map[string][]string
+	Params  map[string]string
 }
 
 // Match reports whether the range applies to a content type.
-func (mr *MediaRange) Match(contentType string, params map[string][]string) bool {
+func (mr *MediaRange) Match(contentType string, params map[string]string) bool {
 	return mr.match(contentType, params).Valid
 }
 
@@ -186,7 +195,7 @@ func (m mediaRangeMatches) Less(i, j int) bool {
 	return mi.Type > mj.Type
 }
 
-func (mr *MediaRange) match(contentType string, params map[string][]string) mediaRangeMatch {
+func (mr *MediaRange) match(contentType string, params map[string]string) mediaRangeMatch {
 	mrType, mrSubtype := splitContentType(mr.Range)
 	ctType, ctSubtype := splitContentType(contentType)
 	match := mediaRangeMatch{MediaRange: mr}
@@ -206,13 +215,8 @@ func (mr *MediaRange) match(contentType string, params map[string][]string) medi
 		if !ok {
 			return match
 		}
-		if len(v1) != len(v2) {
+		if v1 != v2 {
 			return match
-		}
-		for i := range v1 {
-			if v1[i] != v2[i] {
-				return match
-			}
 		}
 		match.Params++
 	}
@@ -234,10 +238,14 @@ func (mr *MediaRange) String() string {
 	if mr.Quality != 1.0 {
 		parts = append(parts, "q="+strconv.FormatFloat(float64(mr.Quality), 'f', 3, 32))
 	}
-	for k, vs := range mr.Params {
-		for _, v := range vs {
-			parts = append(parts, k+"="+quoteHTTP(v))
-		}
+	keys := make([]string, 0, len(mr.Params))
+	for k := range mr.Params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := mr.Params[k]
+		parts = append(parts, k+"="+quoteHTTP(v))
 	}
 	return strings.Join(parts, ";")
 }

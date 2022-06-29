@@ -24,7 +24,7 @@ import (
 func TestHeader(t *testing.T) {
 	type QualityCheck struct {
 		Type    string
-		Params  map[string][]string
+		Params  map[string]string
 		Quality float32
 	}
 
@@ -35,13 +35,13 @@ func TestHeader(t *testing.T) {
 		{
 			"text/*;q=0.3, text/html;q=0.7, text/html;level=1, text/html;level=2;q=0.4, */*;q=0.5",
 			[]QualityCheck{
-				{"text/html", map[string][]string{"level": {"1"}}, 1.0},
-				{"text/html", map[string][]string{"level": {"1"}}, 1.0},
-				{"text/html", map[string][]string{}, 0.7},
-				{"text/plain", map[string][]string{}, 0.3},
-				{"image/jpeg", map[string][]string{}, 0.5},
-				{"text/html", map[string][]string{"level": {"2"}}, 0.4},
-				{"text/html", map[string][]string{"level": {"3"}}, 0.7},
+				{"text/html", map[string]string{"level": "1"}, 1.0},
+				{"text/html", map[string]string{"level": "1"}, 1.0},
+				{"text/html", map[string]string{}, 0.7},
+				{"text/plain", map[string]string{}, 0.3},
+				{"image/jpeg", map[string]string{}, 0.5},
+				{"text/html", map[string]string{"level": "2"}, 0.4},
+				{"text/html", map[string]string{"level": "3"}, 0.7},
 			},
 		},
 	}
@@ -71,19 +71,19 @@ func TestParseHeader(t *testing.T) {
 		{
 			accept: `text/html; q=1`,
 			want: Header{
-				{"text/html", 1.0, map[string][]string{}},
+				{"text/html", 1.0, map[string]string{}},
 			},
 		},
 		{
 			accept: `text/html; q=0.001`,
 			want: Header{
-				{"text/html", 0.001, map[string][]string{}},
+				{"text/html", 0.001, map[string]string{}},
 			},
 		},
 		{
 			accept: `text/html; q=0`,
 			want: Header{
-				{"text/html", 0.0, map[string][]string{}},
+				{"text/html", 0.0, map[string]string{}},
 			},
 		},
 		{
@@ -93,48 +93,64 @@ func TestParseHeader(t *testing.T) {
 		{
 			accept: "audio/*; q=0.2, audio/basic",
 			want: Header{
-				{"audio/*", 0.2, map[string][]string{}},
-				{"audio/basic", 1.0, map[string][]string{}},
+				{"audio/*", 0.2, map[string]string{}},
+				{"audio/basic", 1.0, map[string]string{}},
 			},
 		},
 		{
 			accept: `text/html; charset="utf-8"`,
 			want: Header{
-				{"text/html", 1.0, map[string][]string{"charset": {"utf-8"}}},
+				{"text/html", 1.0, map[string]string{"charset": "utf-8"}},
 			},
 		},
 		{
-			accept: `text/html; charset="utf-8"; charset="utf 8"; charset="utf\"8"`,
+			accept: `TEXT/HTML; Q=0.5; CHARSET="UTF-8"`,
 			want: Header{
-				{"text/html", 1.0, map[string][]string{"charset": {"utf-8", "utf 8", "utf\"8"}}},
+				{"text/html", 0.5, map[string]string{"charset": "UTF-8"}},
 			},
+		},
+		{
+			accept: `text/html; charset="utf 8"`,
+			want: Header{
+				{"text/html", 1.0, map[string]string{"charset": "utf 8"}},
+			},
+		},
+		{
+			accept: `text/html; charset="utf\"8"`,
+			want: Header{
+				{"text/html", 1.0, map[string]string{"charset": "utf\"8"}},
+			},
+		},
+		{
+			accept:  `text/html; charset="utf-8"; charset="utf 8"; charset="utf\"8"`,
+			wantErr: true,
 		},
 		{
 			accept: "text/plain; q=0.5, text/html, text/x-dvi; q=0.8, text/x-c",
 			want: Header{
-				{"text/plain", 0.5, map[string][]string{}},
-				{"text/html", 1.0, map[string][]string{}},
-				{"text/x-dvi", 0.8, map[string][]string{}},
-				{"text/x-c", 1.0, map[string][]string{}},
+				{"text/plain", 0.5, map[string]string{}},
+				{"text/html", 1.0, map[string]string{}},
+				{"text/x-dvi", 0.8, map[string]string{}},
+				{"text/x-c", 1.0, map[string]string{}},
 			},
 		},
 		{
 			accept: "text/*, text/html, text/html;level=1, */*",
 			want: Header{
-				{"text/*", 1.0, map[string][]string{}},
-				{"text/html", 1.0, map[string][]string{}},
-				{"text/html", 1.0, map[string][]string{"level": {"1"}}},
-				{"*/*", 1.0, map[string][]string{}},
+				{"text/*", 1.0, map[string]string{}},
+				{"text/html", 1.0, map[string]string{}},
+				{"text/html", 1.0, map[string]string{"level": "1"}},
+				{"*/*", 1.0, map[string]string{}},
 			},
 		},
 		{
 			accept: "text/*;q=0.3, text/html;q=0.7, text/html;level=1, text/html;level=2;q=0.4, */*;q=0.5",
 			want: Header{
-				{"text/*", 0.3, map[string][]string{}},
-				{"text/html", 0.7, map[string][]string{}},
-				{"text/html", 1.0, map[string][]string{"level": {"1"}}},
-				{"text/html", 0.4, map[string][]string{"level": {"2"}}},
-				{"*/*", 0.5, map[string][]string{}},
+				{"text/*", 0.3, map[string]string{}},
+				{"text/html", 0.7, map[string]string{}},
+				{"text/html", 1.0, map[string]string{"level": "1"}},
+				{"text/html", 0.4, map[string]string{"level": "2"}},
+				{"*/*", 0.5, map[string]string{}},
 			},
 		},
 	}
@@ -160,66 +176,66 @@ func TestParseHeader(t *testing.T) {
 func TestMediaRange_match(t *testing.T) {
 	tests := []struct {
 		Range  string
-		Params map[string][]string
+		Params map[string]string
 
 		ContentType   string
-		ContentParams map[string][]string
+		ContentParams map[string]string
 
 		Match mediaRangeMatch
 	}{
 		{
-			"text/html", map[string][]string{},
-			"text/html", map[string][]string{},
+			"text/html", map[string]string{},
+			"text/html", map[string]string{},
 			mediaRangeMatch{nil, true, 1, 1, 0},
 		},
 		{
-			"text/html", map[string][]string{},
-			"text/plain", map[string][]string{},
+			"text/html", map[string]string{},
+			"text/plain", map[string]string{},
 			mediaRangeMatch{nil, false, 0, 0, 0},
 		},
 		{
-			"text/*", map[string][]string{},
-			"image/jpeg", map[string][]string{},
+			"text/*", map[string]string{},
+			"image/jpeg", map[string]string{},
 			mediaRangeMatch{nil, false, 0, 0, 0},
 		},
 		{
-			"text/*", map[string][]string{},
-			"text/plain", map[string][]string{},
+			"text/*", map[string]string{},
+			"text/plain", map[string]string{},
 			mediaRangeMatch{nil, true, 1, 0, 0},
 		},
 		{
-			"*/*", map[string][]string{},
-			"image/jpeg", map[string][]string{},
+			"*/*", map[string]string{},
+			"image/jpeg", map[string]string{},
 			mediaRangeMatch{nil, true, 0, 0, 0},
 		},
 		{
-			"text/html", map[string][]string{"level": {"1"}},
-			"text/html", map[string][]string{"level": {"1"}},
+			"text/html", map[string]string{"level": "1"},
+			"text/html", map[string]string{"level": "1"},
 			mediaRangeMatch{nil, true, 1, 1, 1},
 		},
 		{
-			"text/html", map[string][]string{"level": {"1"}},
-			"text/html", map[string][]string{"level": {"2"}},
+			"text/html", map[string]string{"level": "1"},
+			"text/html", map[string]string{"level": "2"},
 			mediaRangeMatch{nil, false, 1, 1, 0},
 		},
 		{
-			"text/html", map[string][]string{"level": {"1"}},
-			"text/html", map[string][]string{},
+			"text/html", map[string]string{"level": "1"},
+			"text/html", map[string]string{},
 			mediaRangeMatch{nil, false, 1, 1, 0},
 		},
 		{
-			"text/html", map[string][]string{},
-			"text/html", map[string][]string{"level": {"1"}},
+			"text/html", map[string]string{},
+			"text/html", map[string]string{"level": "1"},
 			mediaRangeMatch{nil, true, 1, 1, 0},
 		},
 		{
-			"text/html", map[string][]string{"level": {"1"}},
-			"text/html", map[string][]string{"level": {"1"}, "foo": {"bar"}},
+			"text/html", map[string]string{"level": "1"},
+			"text/html", map[string]string{"level": "1", "foo": "bar"},
 			mediaRangeMatch{nil, true, 1, 1, 1},
 		},
 		{
-			"text/html", map[string][]string{"level": {"1"}, "charset": {"utf-8"}},
-			"text/html", map[string][]string{"level": {"1"}, "charset": {"utf-8"}, "foo": {"bar"}},
+			"text/html", map[string]string{"level": "1", "charset": "utf-8"},
+			"text/html", map[string]string{"level": "1", "charset": "utf-8", "foo": "bar"},
 			mediaRangeMatch{nil, true, 1, 1, 2},
 		},
 	}

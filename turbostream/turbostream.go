@@ -39,7 +39,7 @@ func IsSupported(reqHeader http.Header) bool {
 	if err != nil {
 		return false
 	}
-	return h.Quality(ContentType, map[string][]string{"charset": {"utf-8"}}) > 0
+	return h.Quality(ContentType, map[string]string{"charset": "utf-8"}) > 0
 }
 
 // Render sends Turbo Stream actions in response to a form submission.
