@@ -235,6 +235,14 @@ type parsedRepresentation struct {
 func (resp *Response) gatherRepresentations(report func(error)) []parsedRepresentation {
 	possibilities := make([]parsedRepresentation, 0, 4+len(resp.Other))
 	utf8Params := map[string]string{"charset": "utf-8"}
+	if resp.TurboStreamTemplate != "" {
+		possibilities = append(possibilities, parsedRepresentation{
+			contentType: turbostream.ContentType + charsetUTF8Params,
+			mediaType:   turbostream.ContentType,
+			typeParams:  utf8Params,
+			reprFunc:    resp.turboStreamRepresentation,
+		})
+	}
 	if resp.HTMLTemplate != "" {
 		possibilities = append(possibilities, parsedRepresentation{
 			contentType: htmlType + charsetUTF8Params,
@@ -257,14 +265,6 @@ func (resp *Response) gatherRepresentations(report func(error)) []parsedRepresen
 			mediaType:   plainType,
 			typeParams:  utf8Params,
 			reprFunc:    resp.textRepresentation,
-		})
-	}
-	if resp.TurboStreamTemplate != "" {
-		possibilities = append(possibilities, parsedRepresentation{
-			contentType: turbostream.ContentType + charsetUTF8Params,
-			mediaType:   turbostream.ContentType,
-			typeParams:  utf8Params,
-			reprFunc:    resp.turboStreamRepresentation,
 		})
 	}
 	for _, repr := range resp.Other {

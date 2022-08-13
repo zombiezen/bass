@@ -215,6 +215,89 @@ func TestResponseRender(t *testing.T) {
 			wantBody: `<turbo-stream action="remove" target="junk"></turbo-stream>`,
 		},
 		{
+			name: "TurboStreamAndHTML/AcceptsBoth",
+			resp: &Response{
+				HTMLTemplate:        "page.html",
+				TurboStreamTemplate: "stream.html",
+				TemplateData: map[string]any{
+					"Subject": "World",
+					"Target":  "junk",
+				},
+			},
+			opts: &renderOptions{
+				reqMethod: http.MethodGet,
+				reqPath:   "/",
+				acceptHeader: accept.Header{
+					{Range: "text/vnd.turbo-stream.html", Quality: 1.0},
+					{Range: "text/html", Quality: 1.0},
+					{Range: "application/xhtml+xml", Quality: 1.0},
+				},
+				templateFiles: templateFiles,
+			},
+			wantStatusCode: http.StatusOK,
+			wantHeader: http.Header{
+				"Content-Type":           {"text/vnd.turbo-stream.html; charset=utf-8"},
+				"Content-Length":         {"59"},
+				"X-Content-Type-Options": {"nosniff"},
+			},
+			wantBody: `<turbo-stream action="remove" target="junk"></turbo-stream>`,
+		},
+		{
+			name: "TurboStreamAndHTML/AcceptOnlyHTML",
+			resp: &Response{
+				HTMLTemplate:        "page.html",
+				TurboStreamTemplate: "stream.html",
+				TemplateData: map[string]any{
+					"Subject": "World",
+					"Target":  "junk",
+				},
+			},
+			opts: &renderOptions{
+				reqMethod: http.MethodGet,
+				reqPath:   "/",
+				acceptHeader: accept.Header{
+					{Range: "text/html", Quality: 1.0},
+					{Range: "application/xhtml+xml", Quality: 1.0},
+				},
+				templateFiles: templateFiles,
+			},
+			wantStatusCode: http.StatusOK,
+			wantHeader: http.Header{
+				"Content-Type":           {"text/html; charset=utf-8"},
+				"Content-Length":         {"29"},
+				"X-Content-Type-Options": {"nosniff"},
+			},
+			wantBody: "<!DOCTYPE html>\nHello, World!",
+		},
+		{
+			name: "TurboStreamAndHTML/PrefersHTML",
+			resp: &Response{
+				HTMLTemplate:        "page.html",
+				TurboStreamTemplate: "stream.html",
+				TemplateData: map[string]any{
+					"Subject": "World",
+					"Target":  "junk",
+				},
+			},
+			opts: &renderOptions{
+				reqMethod: http.MethodGet,
+				reqPath:   "/",
+				acceptHeader: accept.Header{
+					{Range: "text/html", Quality: 1.0},
+					{Range: "application/xhtml+xml", Quality: 1.0},
+					{Range: "*/*", Quality: 0.9},
+				},
+				templateFiles: templateFiles,
+			},
+			wantStatusCode: http.StatusOK,
+			wantHeader: http.Header{
+				"Content-Type":           {"text/html; charset=utf-8"},
+				"Content-Length":         {"29"},
+				"X-Content-Type-Options": {"nosniff"},
+			},
+			wantBody: "<!DOCTYPE html>\nHello, World!",
+		},
+		{
 			name: "JSON",
 			resp: &Response{
 				JSONValue: map[string]any{"greeting": "hello world"},
