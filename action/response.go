@@ -68,6 +68,11 @@ type Response struct {
 	// [Location header]: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Location
 	SeeOther string
 
+	// SetCookies is a list of cookies to add as Set-Cookie headers.
+	// The provided cookies must have valid names.
+	// Invalid cookies may be silent dropped.
+	SetCookies []*http.Cookie
+
 	// TemplateData is passed to the templates.
 	// See [text/template] for details.
 	TemplateData any
@@ -182,6 +187,9 @@ func (resp *Response) render(ctx context.Context, w http.ResponseWriter, opts *r
 	if resp == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+	for _, cookie := range resp.SetCookies {
+		http.SetCookie(w, cookie)
 	}
 	if resp.SeeOther != "" {
 		statusCode := http.StatusSeeOther

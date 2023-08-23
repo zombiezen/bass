@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -468,6 +469,86 @@ func TestResponseRender(t *testing.T) {
 				"X-Content-Type-Options": {"nosniff"},
 			},
 			wantBody: "Hello,World\r\n",
+		},
+		{
+			name: "Cookie",
+			resp: &Response{
+				HTMLTemplate: "page.html",
+				TemplateData: map[string]any{
+					"Subject": "World",
+				},
+				SetCookies: []*http.Cookie{
+					{
+						Name:  "mycookie1",
+						Value: "ohai",
+					},
+					{
+						Name:  "mycookie2",
+						Value: "nom",
+					},
+				},
+			},
+			opts: &renderOptions{
+				reqMethod: http.MethodGet,
+				reqPath:   "/",
+				acceptHeader: accept.Header{
+					{Range: "*/*", Quality: 1.0},
+				},
+				templateFiles: templateFiles,
+			},
+			wantStatusCode: http.StatusOK,
+			wantHeader: http.Header{
+				"Content-Type":           {"text/html; charset=utf-8"},
+				"Content-Length":         {"29"},
+				"X-Content-Type-Options": {"nosniff"},
+				"Set-Cookie": {
+					"mycookie1=ohai",
+					"mycookie2=nom",
+				},
+			},
+			wantBody: "<!DOCTYPE html>\nHello, World!",
+		},
+		{
+			name: "CookieWithOther",
+			resp: &Response{
+				Other: []*Representation{{
+					Header: http.Header{
+						"Content-Type":   {plainType + charsetUTF8Params},
+						"Content-Length": {strconv.Itoa(len("Hello, World!\n"))},
+						"Set-Cookie":     {"mycookie3=yum"},
+					},
+					Body: io.NopCloser(strings.NewReader("Hello, World!\n")),
+				}},
+				SetCookies: []*http.Cookie{
+					{
+						Name:  "mycookie1",
+						Value: "ohai",
+					},
+					{
+						Name:  "mycookie2",
+						Value: "nom",
+					},
+				},
+			},
+			opts: &renderOptions{
+				reqMethod: http.MethodGet,
+				reqPath:   "/",
+				acceptHeader: accept.Header{
+					{Range: "*/*", Quality: 1.0},
+				},
+			},
+			wantStatusCode: http.StatusOK,
+			wantHeader: http.Header{
+				"Content-Type":           {"text/plain; charset=utf-8"},
+				"Content-Length":         {"14"},
+				"X-Content-Type-Options": {"nosniff"},
+				"Set-Cookie": {
+					"mycookie1=ohai",
+					"mycookie2=nom",
+					"mycookie3=yum",
+				},
+			},
+			wantBody: "Hello, World!\n",
 		},
 	}
 	for _, test := range tests {
